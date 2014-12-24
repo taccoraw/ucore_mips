@@ -8,10 +8,6 @@
 
 volatile size_t ticks;
 
-long SYSTEM_READ_TIMER( void ){
-    return ticks;
-}
-
 /* *
  * clock_init - initialize MIPS timer to interrupt,
  * and then enable IRQ_TIMER.
@@ -19,7 +15,7 @@ long SYSTEM_READ_TIMER( void ){
 void
 clock_init(void) {
     // set MIPS timer, function name is a little confusing
-    // clock_intr();
+    clock_intr();
 
     // initialize time counter 'ticks' to zero
     ticks = 0;
@@ -30,7 +26,6 @@ clock_init(void) {
 
 void
 clock_intr(void) {
-    mtc0(CP0_Compare, 0x00020000);
-    // uint32_t count = mfc0(CP0_Count);
-    // mtc0(CP0_Compare, count + TIMER_DELTA);
+    uint32_t count = mfc0(CP0_Count);
+    mtc0(CP0_Compare, count + TIMER_DELTA);
 }

@@ -899,8 +899,8 @@ user_main(void *arg) {
     KERNEL_EXECVE2(TEST);
 #endif
 #else
-    KERNEL_EXECVE(sh);
-    // KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
+    // KERNEL_EXECVE(sh);
+    KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
 #endif
     panic("user_main execve failed.\n");
 }

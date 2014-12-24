@@ -7,8 +7,7 @@
 #include <sync.h>
 
 /***** Serial I/O code *****/
-#define COM1            0xbfd003f8
-#define COM1_STATE      (COM1+4)
+#define COM1            0xb80003f8
 
 static bool serial_exists = 0;
 
@@ -18,14 +17,13 @@ serial_init(void) {
 
     if (serial_exists) {
         // Do NOT response to serial int now. TODO
-        pic_enable(IRQ_COM1);
+        // pic_enable(IRQ_COM1);
     }
 }
 
 static void
 serial_putc_sub(int c) {
-    while ((*(uint32_t *)COM1_STATE & 1) == 0);
-    *(uint32_t *)COM1 = (uint32_t)c;
+    *(uint8_t *)COM1 = (uint8_t)c;
 }
 
 /* serial_putc - print character to serial port */
@@ -76,11 +74,6 @@ cons_intr(int (*proc)(void)) {
 static int
 serial_proc_data(void) {
     int c = -1;
-
-    if ((*(uint32_t *)COM1_STATE & 2) == 0)
-        return -1;
-    c = *(uint32_t *)COM1;
-
     if (c == 127) {
         c = '\b';
     }
