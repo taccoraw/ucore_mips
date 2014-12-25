@@ -572,6 +572,93 @@ load_icode_read(int fd, void *buf, size_t len, off_t offset) {
     return 0;
 }
 
+struct aux_load_elf {
+    char* interp;
+    uint32_t entry, max_addr, phdr, phent, phnum;
+};
+
+static int
+load_elf(int fd, struct mm_struct* mm, uint32_t base, struct aux_load_elf* aux) {
+    struct elfhdr h;
+    assert(load_icode_read(fd, &h, sizeof(h), 0) == 0);
+    if (aux != NULL) {
+        aux -> interp = NULL;
+        aux -> entry = h.e_entry;
+        aux -> max_addr = 0;
+        aux -> phdr = 0;
+        aux -> phent = h.e_phentsize;
+        aux -> phnum = h.e_phnum;
+    }
+    struct proghdr ph;
+    uint32_t h_e_phnum32 = h.e_phnum;
+    while (h_e_phnum32-- > 0) {
+        assert(load_icode_read(fd, &ph, sizeof(ph), h.e_phoff + sizeof(ph) * (h_e_phnum32)) == 0);  // already --
+        switch (ph.p_type) {
+        case ELF_PT_INTERP:
+            assert(aux != NULL);
+            assert(base == 0);
+            // aux -> interp = (char*)ph.p_va;
+            aux -> interp = (char*)kmalloc(ph.p_memsz);
+            load_icode_read(fd, aux -> interp, ph.p_filesz, ph.p_offset);
+            continue;
+        case ELF_PT_PHDR:
+            if (aux != NULL)
+                aux -> phdr = ph.p_va + base;
+            // No `break` here. Fall through.
+        case ELF_PT_LOAD:
+            break;
+        default:
+            continue;
+        }
+        uint32_t flags = 
+            ((ph.p_flags & ELF_PF_R) ? VM_READ : 0) |
+            ((ph.p_flags & ELF_PF_W) ? VM_WRITE : 0) |
+            ((ph.p_flags & ELF_PF_X) ? VM_EXEC : 0);
+        uint32_t perm = PTE_U | ((ph.p_flags & ELF_PF_W) ? PTE_W : 0);
+        cprintf("VA: 0x%08x, MEMSZ: 0x%08x.\n", ph.p_va + base, ph.p_memsz);
+        assert(mm_map(mm, (ph.p_va + base), ph.p_memsz, flags, NULL) == 0);
+
+        // cprintf("********************\n");
+        assert(ph.p_memsz >= ph.p_filesz);
+        struct Page *page = NULL;
+        uint32_t la = ph.p_va + base, offset = ph.p_offset;
+        if (la % PGSIZE > 0) {
+            assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+            uint32_t len = (la / PGSIZE == (la + ph.p_filesz) / PGSIZE) ? ph.p_filesz : (PGSIZE - la % PGSIZE);
+            assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
+            la += len;
+            offset += len;
+        }
+        while (la < (ph.p_va + base + ph.p_filesz) / PGSIZE * PGSIZE) {
+            assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+            assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
+            la += PGSIZE;
+            offset += PGSIZE;
+        }
+        if (la < ph.p_va + base + ph.p_filesz) {
+            assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+            uint32_t len = (ph.p_va + base + ph.p_filesz) % PGSIZE;
+            assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
+            la += len;
+            offset += len;
+        }
+        while (la < ph.p_va + base + ph.p_memsz) {
+            if (la % PGSIZE == 0)
+                assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+            uint32_t len = (la % PGSIZE == 0) ? PGSIZE : (PGSIZE - la % PGSIZE);
+            if (la / PGSIZE == (ph.p_va + base + ph.p_memsz) / PGSIZE)
+                len -= PGSIZE - (ph.p_va + base + ph.p_memsz) % PGSIZE;
+            // cprintf("----------memset: 0x%08x LEN: 0x%08x\n", page2kva(page) + la % PGSIZE, len);
+            memset(page2kva(page) + la % PGSIZE, 0, len);
+            la += len;
+        }
+        if (aux != NULL && la > aux -> max_addr)
+            aux -> max_addr = la;
+        // cprintf("====================\n");
+    }
+    return 0;
+}
+
 // load_icode -  called by sys_exec-->do_execve
 
 static int
@@ -603,55 +690,26 @@ load_icode(int fd, int argc, char **kargv) {
     struct mm_struct *mm = mm_create();
     assert(mm != NULL);
     assert(setup_pgdir(mm) == 0);
-    struct elfhdr h;
-    assert(load_icode_read(fd, &h, sizeof(h), 0) == 0);
-    struct proghdr ph;
-    uint32_t h_e_phnum32 = h.e_phnum;
-    while (h_e_phnum32-- > 0) {
-        assert(load_icode_read(fd, &ph, sizeof(ph), h.e_phoff + sizeof(ph) * (h_e_phnum32)) == 0);  // already --
-        if (ph.p_type != ELF_PT_LOAD) continue;
-        uint32_t flags = 
-            ((ph.p_flags & ELF_PF_R) ? VM_READ : 0) |
-            ((ph.p_flags & ELF_PF_W) ? VM_WRITE : 0) |
-            ((ph.p_flags & ELF_PF_X) ? VM_EXEC : 0);
-        uint32_t perm = PTE_U | ((ph.p_flags & ELF_PF_W) ? PTE_W : 0);
-        assert(mm_map(mm, ph.p_va, ph.p_memsz, flags, NULL) == 0);
-
-        // cprintf("********************\n");
-        assert(ph.p_memsz >= ph.p_filesz);
-        struct Page *page = NULL;
-        uint32_t la = ph.p_va, offset = ph.p_offset;
-        if (la % PGSIZE > 0) {
-            assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
-            uint32_t len = (la / PGSIZE == (la + ph.p_filesz) / PGSIZE) ? ph.p_filesz : (PGSIZE - la % PGSIZE);
-            assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
-            la += len;
-            offset += len;
-        }
-        while (la < (ph.p_va + ph.p_filesz) / PGSIZE * PGSIZE) {
-            assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
-            assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
-            la += PGSIZE;
-            offset += PGSIZE;
-        }
-        if (la < ph.p_va + ph.p_filesz) {
-            assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
-            uint32_t len = (ph.p_va + ph.p_filesz) % PGSIZE;
-            assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
-            la += len;
-            offset += len;
-        }
-        while (la < ph.p_va + ph.p_memsz) {
-            if (la % PGSIZE == 0)
-                assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
-            uint32_t len = (la % PGSIZE == 0) ? PGSIZE : (PGSIZE - la % PGSIZE);
-            if (la / PGSIZE == (ph.p_va + ph.p_memsz) / PGSIZE)
-                len -= PGSIZE - (ph.p_va + ph.p_memsz) % PGSIZE;
-            // cprintf("----------memset: 0x%08x LEN: 0x%08x\n", page2kva(page) + la % PGSIZE, len);
-            memset(page2kva(page) + la % PGSIZE, 0, len);
-            la += len;
-        }
-        // cprintf("====================\n");
+    struct aux_load_elf aux;
+    cprintf("Loading elf\n");
+    assert(load_elf(fd, mm, 0, &aux) == 0);
+    bool dyn = aux.interp != NULL;
+    uint32_t auxv_entry;
+    cprintf("max_addr = 0x%08x\n", aux.max_addr);
+    aux.max_addr = ROUNDUP(aux.max_addr, PGSIZE);
+    cprintf("base = 0x%08x\n", aux.max_addr);
+    if (dyn) {
+        cprintf("INTERP: %s\n", aux.interp);
+        int interp_fd = sysfile_open(aux.interp, O_RDONLY);
+        kfree(aux.interp);
+        aux.interp = NULL;
+        assert(interp_fd >= 0);
+        uint32_t base = aux.max_addr;
+        struct aux_load_elf aux2;
+        assert(load_elf(interp_fd, mm, base, &aux2) == 0);
+        sysfile_close(interp_fd);
+        auxv_entry = aux.entry;
+        aux.entry = aux2.entry + base;
     }
     assert(mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, VM_READ | VM_WRITE | VM_STACK, NULL) == 0);
     assert(pgdir_alloc_page(mm -> pgdir, USTACKTOP - PGSIZE, PTE_USER) != NULL);
@@ -666,11 +724,31 @@ load_icode(int fd, int argc, char **kargv) {
     uint32_t* u_argv[EXEC_MAX_ARG_NUM];
     int i = 0;
     for (; i < argc; i++) {
+        cprintf("kargv[%d] = %s\n", i, kargv[i]);
         size_t len = (strlen(kargv[i]) + 1 + 3) / 4;
         u_esp -= len;
         u_argv[i] = u_esp;
         strcpy((char*)u_esp, kargv[i]);
     }
+    // auxv begin
+    if (dyn) {
+        u_esp -= sizeof(Elf32_auxv_t) / 4 * 6;  // 6 == AUXV_NUM
+        Elf32_auxv_t* auxv = (Elf32_auxv_t*)u_esp;
+        auxv[0].a_type = ELF_AT_PHDR;
+        auxv[0].a_un.a_val = aux.phdr;
+        auxv[1].a_type = ELF_AT_PHENT;
+        auxv[1].a_un.a_val = aux.phent;
+        auxv[2].a_type = ELF_AT_PHNUM;
+        auxv[2].a_un.a_val = aux.phnum;
+        auxv[3].a_type = ELF_AT_ENTRY;
+        auxv[3].a_un.a_val = auxv_entry;
+        auxv[4].a_type = ELF_AT_BASE;
+        auxv[4].a_un.a_val = aux.max_addr;
+        auxv[5].a_type = ELF_AT_NULL;
+        auxv[5].a_un.a_val = 0;
+    }
+    // auxv end
+    *(--u_esp) = 0;
     u_esp -= argc;
     for (i = 0; i < argc; i++)
         u_esp[i] = (uintptr_t)u_argv[i];
@@ -681,8 +759,11 @@ load_icode(int fd, int argc, char **kargv) {
     tf -> tf_regs.a0 = argc;
     tf -> tf_regs.a1 = (uintptr_t)(u_esp+1);
     tf -> tf_regs.sp = (uintptr_t)u_esp;
-    tf -> tf_EPC = h.e_entry;
+    tf -> tf_EPC = aux.entry;
     tf -> tf_Status = 0x13;
+    if (dyn) {
+        tf -> tf_regs.t9 = aux.entry;
+    }
     // cprintf("----------LOADED----------\n");
     return 0;
 }
@@ -900,7 +981,8 @@ user_main(void *arg) {
 #endif
 #else
     // KERNEL_EXECVE(sh);
-    KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
+    // KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
+    KERNEL_EXECVE(run);
 #endif
     panic("user_main execve failed.\n");
 }
@@ -1027,3 +1109,63 @@ do_sleep(unsigned int time) {
     del_timer(timer);
     return 0;
 }
+
+void* do_mmap2(void* addr, size_t length, int prot, int fd, off_t offset) {
+    struct mm_struct* mm = current -> mm;
+    assert(mm != NULL);
+    uint32_t flags =
+        ((prot & PROT_READ) ? VM_READ : 0) |
+        ((prot & PROT_WRITE) ? VM_WRITE : 0) |
+        ((prot & PROT_EXEC) ? VM_EXEC : 0);
+    uint32_t perm = PTE_U | ((prot & PROT_WRITE) ? PTE_W : 0);
+    assert(mm_map(mm, (uint32_t)addr, length, flags, NULL) == 0);
+
+    struct Page *page = NULL;
+    uint32_t la = (uint32_t)addr, end = la + length;
+    current -> mm = NULL;
+    if (la % PGSIZE > 0) {
+        assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+        uint32_t len = (la / PGSIZE == end / PGSIZE) ? length : (PGSIZE - la % PGSIZE);
+        assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
+        la += len;
+        offset += len;
+    }
+    while (la < end / PGSIZE * PGSIZE) {
+        assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+        assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
+        la += PGSIZE;
+        offset += PGSIZE;
+    }
+    if (la < end) {
+        assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
+        uint32_t len = end % PGSIZE;
+        assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
+        la += len;
+        offset += len;
+    }
+    current -> mm = mm;
+
+    return addr;
+}
+uint32_t do_mmap2_query() {
+    struct mm_struct* mm = current -> mm;
+    assert(mm != NULL);
+    struct vma_struct* vma = NULL;
+    list_entry_t *list = &(mm -> mmap_list), *le = list;
+    while ((le = list_prev(le)) != list) {
+        vma = le2vma(le, list_link);
+        /*
+        cprintf("[0x%08x, 0x%08x] %c%c%c%c\n", vma->vm_start, vma->vm_end,
+        ((vma->vm_flags & VM_STACK) ? 'S' : ' '),
+        ((vma->vm_flags & VM_EXEC) ? 'X' : ' '),
+        ((vma->vm_flags & VM_WRITE) ? 'W' : ' '),
+        ((vma->vm_flags & VM_READ) ? 'R' : ' ')
+        );
+        */
+        if (!(vma->vm_flags & VM_STACK))
+            break;
+    }
+    assert(le != list);
+    return vma->vm_end;
+}
+

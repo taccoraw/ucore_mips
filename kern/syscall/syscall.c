@@ -156,6 +156,19 @@ sys_dup(uint32_t arg[]) {
     int fd2 = (int)arg[1];
     return sysfile_dup(fd1, fd2);
 }
+static int
+sys_mmap2(uint32_t arg[]) {
+    void* addr = (void*)arg[0];
+    size_t length = (size_t)arg[1];
+    int prot = (int)arg[2];
+    int fd = (int)arg[3];
+    off_t offset = (off_t)arg[4];
+    return (int)do_mmap2(addr, length, prot, fd, offset);
+}
+static int
+sys_mmap2_query(uint32_t arg[]) {
+    return (int)do_mmap2_query();
+}
 
 static int (*syscalls[])(uint32_t arg[]) = {
     [SYS_exit]              sys_exit,
@@ -180,6 +193,8 @@ static int (*syscalls[])(uint32_t arg[]) = {
     [SYS_getcwd]            sys_getcwd,
     [SYS_getdirentry]       sys_getdirentry,
     [SYS_dup]               sys_dup,
+    [SYS_mmap]              sys_mmap2,
+    [SYS_mmap2_query]       sys_mmap2_query,
 };
 
 #define NUM_SYSCALLS        ((sizeof(syscalls)) / (sizeof(syscalls[0])))

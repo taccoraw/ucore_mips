@@ -98,5 +98,7 @@ int do_kill(int pid);
 //FOR LAB6, set the process's priority (bigger value will get more CPU time) 
 void lab6_set_priority(uint32_t priority);
 int do_sleep(unsigned int time);
+void* do_mmap2(void* addr, size_t length, int prot, int fd, off_t offset);
+uint32_t do_mmap2_query();
 #endif /* !__KERN_PROCESS_PROC_H__ */
 

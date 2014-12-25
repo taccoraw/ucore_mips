@@ -38,11 +38,30 @@ struct proghdr {
 
 /* values for Proghdr::p_type */
 #define ELF_PT_LOAD                     1
+#define ELF_PT_INTERP                   3
+#define ELF_PT_PHDR                     6
 
 /* flag bits for Proghdr::p_flags */
 #define ELF_PF_X                        1
 #define ELF_PF_W                        2
 #define ELF_PF_R                        4
+
+/* auxv */
+typedef struct
+{
+  uint32_t a_type;              /* Entry type */
+  union
+    {
+      uint32_t a_val;           /* Integer value */
+    } a_un;
+} Elf32_auxv_t;
+
+#define ELF_AT_NULL     0
+#define ELF_AT_PHDR     3
+#define ELF_AT_PHENT    4
+#define ELF_AT_PHNUM    5
+#define ELF_AT_ENTRY    9
+#define ELF_AT_BASE     7
 
 #endif /* !__LIBS_ELF_H__ */
 

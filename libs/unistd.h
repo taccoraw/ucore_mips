@@ -31,6 +31,7 @@
 #define SYS_getcwd          121
 #define SYS_getdirentry     128
 #define SYS_dup             130
+#define SYS_mmap2_query     254
 /* OLNY FOR LAB6 */
 #define SYS_lab6_set_priority 255
 
@@ -65,6 +66,11 @@
 
 #define EXEC_MAX_ARG_NUM    32
 #define EXEC_MAX_ARG_LEN    4095
+
+#define PROT_NONE           0x0
+#define PROT_READ           0x1
+#define PROT_WRITE          0x2
+#define PROT_EXEC           0x4
 
 #endif /* !__LIBS_UNISTD_H__ */
 
