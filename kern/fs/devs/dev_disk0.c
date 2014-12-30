@@ -39,8 +39,8 @@ disk0_close(struct device *dev) {
 
 static void
 disk0_read_blks_nolock(uint32_t blkno, uint32_t nblks) {
-    extern unsigned char _binary_bin_sfs_img_start[];
-    // uintptr_t _binary_bin_sfs_img_start = 0xbe300000;
+    // extern unsigned char _binary_bin_sfs_img_start[];
+    uintptr_t _binary_bin_sfs_img_start = 0xbe300000;
     uintptr_t start = ((uintptr_t)_binary_bin_sfs_img_start) + blkno*DISK0_BLKSIZE;
     memcpy(disk0_buffer, (char*)start, nblks*DISK0_BLKSIZE);
 }
