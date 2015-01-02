@@ -748,7 +748,8 @@ load_icode(int fd, int argc, char **kargv) {
         auxv[5].a_un.a_val = 0;
     }
     // auxv end
-    *(--u_esp) = 0;
+    *(--u_esp) = 0;  // NULL of envp
+    *(--u_esp) = 0;  // NULL of argv
     u_esp -= argc;
     for (i = 0; i < argc; i++)
         u_esp[i] = (uintptr_t)u_argv[i];
@@ -756,9 +757,8 @@ load_icode(int fd, int argc, char **kargv) {
     u_esp[0] = argc;
     struct trapframe *tf = current->tf;
     memset(tf, 0, sizeof(struct trapframe));
-    tf -> tf_regs.a0 = argc;
-    tf -> tf_regs.a1 = (uintptr_t)(u_esp+1);
     tf -> tf_regs.sp = (uintptr_t)u_esp;
+    tf -> tf_regs.ra = 0x0;
     tf -> tf_EPC = aux.entry;
     tf -> tf_Status = 0x13;
     if (dyn) {
@@ -983,6 +983,7 @@ user_main(void *arg) {
     // KERNEL_EXECVE(sh);
     // KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
     KERNEL_EXECVE(run);
+    // KERNEL_EXECVE(args);
 #endif
     panic("user_main execve failed.\n");
 }
