@@ -761,9 +761,6 @@ load_icode(int fd, int argc, char **kargv) {
     tf -> tf_regs.ra = 0x0;
     tf -> tf_EPC = aux.entry;
     tf -> tf_Status = 0x13;
-    if (dyn) {
-        tf -> tf_regs.t9 = aux.entry;
-    }
     // cprintf("----------LOADED----------\n");
     return 0;
 }
@@ -982,7 +979,7 @@ user_main(void *arg) {
 #else
     // KERNEL_EXECVE(sh);
     // KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
-    KERNEL_EXECVE(run);
+    KERNEL_EXECVE(run, "haha", "test");
     // KERNEL_EXECVE(args);
 #endif
     panic("user_main execve failed.\n");
