@@ -324,15 +324,25 @@ const Elf32_Dyn* ld_lib_load(const char* path, uint32_t *base_store, uint32_t *m
 		sys_seek(fd, eh.e_phoff + eh.e_phentsize * i, LSEEK_SET);
 		sys_read(fd, &ph, sizeof(ph));
 		if (ph.p_type == ELF_PT_LOAD) {
-			void* dst = sys_mmap2((void*)(ph.p_va + base), ph.p_memsz,
-				((ph.p_flags & ELF_PF_R) ? PROT_READ : 0) |
+			int prot = ((ph.p_flags & ELF_PF_R) ? PROT_READ : 0) |
 				((ph.p_flags & ELF_PF_W) ? PROT_WRITE : 0) |
-				((ph.p_flags & ELF_PF_X) ? PROT_EXEC: 0),
-				fd, ph.p_offset);
-			cprintf("OFF 0x%08x -> MEM 0x%08x, LEN 0x%08x\n",
-				ph.p_offset, dst, ph.p_memsz);
-			if (max_addr_store != NULL && base+ph.p_va+ph.p_memsz > *max_addr_store)
-				*max_addr_store = base+ph.p_va+ph.p_memsz;
+				((ph.p_flags & ELF_PF_X) ? PROT_EXEC: 0);
+			uint32_t addr = (ph.p_va + base) & 0xfffff000, len = ph.p_filesz + (ph.p_va & 0xfff),
+				offset = ph.p_offset & 0xfffff000;
+			void* dst = sys_mmap2((void*)addr, len, prot, fd, offset);
+			cprintf("OFF 0x%08x -> MEM 0x%08x, LEN 0x%08x\n", offset, dst, len);
+			if ((ph.p_flags & ELF_PF_W) && (len & 0xfff))
+				memset((void*)(addr+len), 0, 0x1000-(len & 0xfff));
+			uint32_t end = (addr+len+0xfff) & 0xfffff000,
+				memend = (base + ph.p_va + ph.p_memsz + 0xfff) & 0xfffff000;
+			if (memend > end) {
+				cprintf("==========BSS==========\n");
+				void* dst = sys_mmap2((void*)end, memend - end, prot, NO_FD, 0x0);
+				cprintf("ZERO -> MEM 0x%08x, LEN 0x%08x\n",
+					dst, memend - end);
+			}
+			if (max_addr_store != NULL && memend > *max_addr_store)
+				*max_addr_store = memend;
 		} else if (ph.p_type == ELF_PT_DYNAMIC) {
 			dyn = (const Elf32_Dyn*)(ph.p_va + base);
 		}

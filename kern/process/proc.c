@@ -839,6 +839,7 @@ do_execve(const char *name, int argc, const char **argv) {
     /* sysfile_open will check the first argument path, thus we have to use a user-space pointer, and argv[0] may be incorrect */
     int fd;
     if ((ret = fd = sysfile_open(path, O_RDONLY)) < 0) {
+        cprintf("Open %s failed.\n", path);
         goto execve_exit;
     }
     if (mm != NULL) {
@@ -1002,7 +1003,7 @@ user_main(void *arg) {
     // KERNEL_EXECVE(pgdir);
     // KERNEL_EXECVE(sleep);
     // KERNEL_EXECVE(spin);
-    //// KERNEL_EXECVE(testbss);
+    // KERNEL_EXECVE(testbss);
     // KERNEL_EXECVE(waitkill);
 #endif
     panic("user_main execve failed.\n");
@@ -1147,20 +1148,29 @@ void* do_mmap2(void* addr, size_t length, int prot, int fd, off_t offset) {
     if (la % PGSIZE > 0) {
         assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
         uint32_t len = (la / PGSIZE == end / PGSIZE) ? length : (PGSIZE - la % PGSIZE);
-        assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
+        if (fd != NO_FD)
+            assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
+        else
+            memset(page2kva(page) + la % PGSIZE, 0, len);
         la += len;
         offset += len;
     }
     while (la < end / PGSIZE * PGSIZE) {
         assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
-        assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
+        if (fd != NO_FD)
+            assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
+        else
+            memset(page2kva(page), 0, PGSIZE);
         la += PGSIZE;
         offset += PGSIZE;
     }
     if (la < end) {
         assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
         uint32_t len = end % PGSIZE;
-        assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
+        if (fd != NO_FD)
+            assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
+        else
+            memset(page2kva(page), 0, len);
         la += len;
         offset += len;
     }
