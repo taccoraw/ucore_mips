@@ -105,7 +105,6 @@ uint32_t ld_main(Elf32_auxv_t* auxv) {
 	for (i = 0; i < gotln + gotgn; i++)
 		got[i] += base;
 	ld_hello();
-	SHOW_VAR(lda_di_num);
 
 	// Step 2: load libs
 	dynamic = NULL;
@@ -115,10 +114,8 @@ uint32_t ld_main(Elf32_auxv_t* auxv) {
 			break;
 		}
 	ld_load_libs(dynamic, base);
-	cprintf("Load OK!\n");
 	// Step 3: reloc
 	ld_reloc();
-	cprintf("Reloc OK!\n");
 
 	// Step 4: jump to entry, fix sp, a0 ~ a3 (argc, argv)
 	cprintf("Jumping to main...\n");
@@ -126,7 +123,7 @@ uint32_t ld_main(Elf32_auxv_t* auxv) {
 }
 
 void ld_hello() {
-    cprintf("Hello from ld.so\n");
+    cprintf("ld.so: Hello from ld.so\n");
 }
 // LDA means ld allocation. ucore has no `malloc`, so we must use static allocation.
 // `lda_di` also serves as the array of DIs, dynamic allocation should use a linked list.
@@ -137,7 +134,6 @@ int lda_di_num = 0;
 void ld_load_libs(const Elf32_Dyn* mdyn, uint32_t ld_base) {
 	/*DynInfo* mdi = */ld_lib_new(NULL);  // mdi = main DynInfo
 	int q = 0;
-	SHOW_VAR(lda_di_num);
 	while (q < lda_di_num) {
 		DynInfo* di = &lda_di[q++];
 		const Elf32_Dyn* dyn = mdyn;
@@ -151,11 +147,11 @@ void ld_load_libs(const Elf32_Dyn* mdyn, uint32_t ld_base) {
 			const char* path = di->str + di->needed[i];
 			if (ld_unique_add(path)) {
 				ld_lib_new(path);
-				cprintf("NEW lib: %s\n", path);
+				cprintf("ld.so: NEW lib: %s\n", path);
 			}
 		}
 	}
-	cprintf("# of libs loaded: %d\n", lda_di_num - 1);
+	cprintf("ld.so: # of libs loaded: %d\n", lda_di_num - 1);
 }
 void ld_reloc() {
 	extern uint32_t ld_entry_got[], ld_entry_plt[];
@@ -199,15 +195,16 @@ void ld_reloc() {
 			*gote += di->base;
 		}
 		// Step B2: reloc global GOT
-		cprintf("Lib: %s\n", di->path);
 		gote = di->got + di->gotln;
 		gotend = gote + di->gotgn;
 		Elf32_Sym* sym = di->sym + di->symigot;
 		for (; gote != gotend; gote++, sym++) {
+			/*
 			cprintf("[%2d] <%02x> 0x%08x (0x%08x) %s\n",
 				sym->st_shndx, ELF32_ST_TYPE(sym->st_info),
 				sym->st_value, *gote,
 				di->str + sym->st_name);
+			*/
 			// When can we be lazy? See Figure 5-10, MIPS ABI Supplement.
 			if (ELF32_ST_TYPE(sym->st_info) == STT_FUNC) {
 				if (sym->st_shndx == SHN_UNDEF) {
@@ -312,7 +309,7 @@ const Elf32_Dyn* ld_lib_load(const char* path, uint32_t *base_store, uint32_t *m
 	sys_read(fd, &eh, sizeof(eh));
 	assert(eh.e_magic == ELF_MAGIC);
 	uint32_t base = sys_mmap2_query();
-	cprintf("BASE = 0x%08x\n", base);
+	cprintf("ld.so: %s BASE = 0x%08x\n", path, base);
 	if (base_store != NULL)
 		*base_store = base;
 	if (max_addr_store != NULL)
@@ -330,16 +327,15 @@ const Elf32_Dyn* ld_lib_load(const char* path, uint32_t *base_store, uint32_t *m
 			uint32_t addr = (ph.p_va + base) & 0xfffff000, len = ph.p_filesz + (ph.p_va & 0xfff),
 				offset = ph.p_offset & 0xfffff000;
 			void* dst = sys_mmap2((void*)addr, len, prot, fd, offset);
-			cprintf("OFF 0x%08x -> MEM 0x%08x, LEN 0x%08x\n", offset, dst, len);
+			// cprintf("OFF 0x%08x -> MEM 0x%08x, LEN 0x%08x\n", offset, dst, len);
 			if ((ph.p_flags & ELF_PF_W) && (len & 0xfff))
 				memset((void*)(addr+len), 0, 0x1000-(len & 0xfff));
 			uint32_t end = (addr+len+0xfff) & 0xfffff000,
 				memend = (base + ph.p_va + ph.p_memsz + 0xfff) & 0xfffff000;
 			if (memend > end) {
-				cprintf("==========BSS==========\n");
+				// cprintf("==========BSS==========\n");
 				void* dst = sys_mmap2((void*)end, memend - end, prot, NO_FD, 0x0);
-				cprintf("ZERO -> MEM 0x%08x, LEN 0x%08x\n",
-					dst, memend - end);
+				// cprintf("ZERO -> MEM 0x%08x, LEN 0x%08x\n", dst, memend - end);
 			}
 			if (max_addr_store != NULL && memend > *max_addr_store)
 				*max_addr_store = memend;
@@ -347,6 +343,8 @@ const Elf32_Dyn* ld_lib_load(const char* path, uint32_t *base_store, uint32_t *m
 			dyn = (const Elf32_Dyn*)(ph.p_va + base);
 		}
 	}
+	if (max_addr_store != NULL)
+		cprintf("ld.so: %s MAX = 0x%08x\n", path, *max_addr_store);
 
 	sys_close(fd);
 	return dyn;
@@ -355,7 +353,6 @@ const Elf32_Dyn* ld_lib_load(const char* path, uint32_t *base_store, uint32_t *m
 uint32_t ld_resolve_got(DynInfo* di, Elf32_Sym* sym, uint32_t* gote) {
 	DynInfo* mdi = lda_di;
 	assert(di != mdi);
-	cprintf("[%s] Resolve: %s\n", di->path, di->str + sym->st_name);
 	uint32_t idx = ld_hash_lookup(mdi, sym, di->str);
 	if (idx != STN_UNDEF) {
 		*gote = mdi->sym[idx].st_value;
@@ -365,6 +362,7 @@ uint32_t ld_resolve_got(DynInfo* di, Elf32_Sym* sym, uint32_t* gote) {
 		Elf32_Addr addr = ld_sym_lookup(sym, di->str);
 		*gote = addr;
 	}
+	cprintf("[%s] Resolve: 0x%08x %s\n", di->path, *gote, di->str + sym->st_name);
 	return *gote;
 }
 
@@ -372,12 +370,13 @@ uint32_t ld_resolve_plt(DynInfo* di, Elf32_Rel* rel) {
 	DynInfo* mdi = lda_di;
 	assert(di == mdi);
 	Elf32_Sym* sym = mdi->sym + ELF32_R_SYM(rel->r_info);
-	cprintf("mResolve: %s\n", mdi->str + sym->st_name);
 	if (ELF32_R_TYPE(rel->r_info) == ELF32_R_MIPS_JUMP_SLOT) {
 		Elf32_Addr addr = ld_sym_lookup(sym, mdi->str);
 		*(Elf32_Addr*)rel->r_offset = addr;
+		cprintf("mResolve: 0x%08x %s\n", addr, mdi->str + sym->st_name);
 		return addr;
 	} else {
+		cprintf("mResolve: %s\n", mdi->str + sym->st_name);
 		cprintf("PLT REL TYPE 0x%08x not supported!\n", ELF32_R_TYPE(rel->r_info));
 		assert(0);
 		return 0xffffffff;
@@ -386,12 +385,12 @@ uint32_t ld_resolve_plt(DynInfo* di, Elf32_Rel* rel) {
 bool ld_check_delay();
 uint32_t ld_handle_got(int idx, uint32_t ra_stub) {
 	if (!ld_check_delay()) {
-		cprintf("Lazy got on ThinPad II.\n");
+		cprintf("ld.so: Lazy got on ThinPad II.\n");
 		uint32_t inst = *(uint32_t*)ra_stub;
 		assert((inst & 0xffff0000) == 0x24180000);
 		idx = inst & 0xffff;
 	} else {
-		cprintf("Lazy got in Qemu.\n");
+		cprintf("ld.so: Lazy got in Qemu.\n");
 	}
 	DynInfo *di = lda_di, *di_end = lda_di + lda_di_num;
 	for (; di != di_end; di++) {
@@ -404,11 +403,11 @@ uint32_t ld_handle_got(int idx, uint32_t ra_stub) {
 
 uint32_t ld_handle_plt(int idx, uint32_t ra_stub) {
 	if (!ld_check_delay()) {
-		cprintf("Lazy plt on ThinPad II.\n");
-		cprintf("I don't know the idx in delay slot of `jr`.\n");
+		cprintf("ld.so: Lazy plt on ThinPad II.\n");
+		cprintf("ld.so: I don't know the idx in delay slot of `jr`.\n");
 		assert(0);
 	} else {
-		cprintf("Lazy plt in Qemu.\n");
+		cprintf("ld.so: Lazy plt in Qemu.\n");
 	}
 	DynInfo* mdi = lda_di;
 	return ld_resolve_plt(mdi, mdi->rel_plt + idx);
@@ -437,7 +436,7 @@ Elf32_Addr ld_sym_lookup(Elf32_Sym* origin, const char* ostr) {
 		if (idx != STN_UNDEF)
 			return di->sym[idx].st_value + di->base;
 	}
-	cprintf("Symbol `%s` not found!", ostr + origin->st_name);
+	cprintf("ld.so: Symbol `%s` not found!", ostr + origin->st_name);
 	assert(0);
 	return 0xffffffff;
 }
