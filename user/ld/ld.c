@@ -55,6 +55,7 @@ uint32_t ld_hash_lookup(DynInfo* di, Elf32_Sym* origin, const char* ostr);
 Elf32_Addr ld_sym_lookup(Elf32_Sym* origin, const char* ostr);
 // ld_unique_add: if unique, add; if not, return 0.
 bool ld_unique_add(const char* path);
+bool ld_check_delay();
 
 uint32_t ld_main(Elf32_auxv_t* auxv) {
 	// Step 0: read auvx
@@ -118,7 +119,7 @@ uint32_t ld_main(Elf32_auxv_t* auxv) {
 	ld_reloc();
 
 	// Step 4: jump to entry, fix sp, a0 ~ a3 (argc, argv)
-	cprintf("Jumping to main...\n");
+	cprintf("ld.so: Jumping to main...\n");
     return entry;
 }
 
@@ -174,13 +175,13 @@ void ld_reloc() {
 		}
 	}
 	// Step A2: non-PIC main, rel.plt (func)
-	//* Uncomment this part to bind NOW.
-	rel = mdi->rel_plt;
-	rel_end = mdi->rel_plt + mdi->rel_plt_num;
-	for (; rel != rel_end; rel++) {
-		ld_resolve_plt(mdi, rel);
+	if (!ld_check_delay()) {  // ThinPad II should not lazy plt
+		rel = mdi->rel_plt;
+		rel_end = mdi->rel_plt + mdi->rel_plt_num;
+		for (; rel != rel_end; rel++) {
+			ld_resolve_plt(mdi, rel);
+		}
 	}
-	//*/
 	// Step B: PIC libs
 	DynInfo* di = lda_di + 1;
 	for (; di != lda_di + lda_di_num; di++) {
@@ -230,7 +231,7 @@ void ld_reloc() {
 			assert(ELF32_R_TYPE(rel->r_info) == ELF32_R_MIPS_REL32);
 			int symi = ELF32_R_SYM(rel->r_info);
 			if (symi == 0) {
-				*(uint32_t*)(rel->r_offset + di->base) = 0xffffffff;
+				*(uint32_t*)(rel->r_offset + di->base) += di->base;
 				continue;
 			}
 			assert(symi >= di->symigot);
@@ -373,16 +374,16 @@ uint32_t ld_resolve_plt(DynInfo* di, Elf32_Rel* rel) {
 	if (ELF32_R_TYPE(rel->r_info) == ELF32_R_MIPS_JUMP_SLOT) {
 		Elf32_Addr addr = ld_sym_lookup(sym, mdi->str);
 		*(Elf32_Addr*)rel->r_offset = addr;
-		cprintf("mResolve: 0x%08x %s\n", addr, mdi->str + sym->st_name);
+		cprintf("ld.so: mResolve: 0x%08x %s\n", addr, mdi->str + sym->st_name);
 		return addr;
 	} else {
-		cprintf("mResolve: %s\n", mdi->str + sym->st_name);
-		cprintf("PLT REL TYPE 0x%08x not supported!\n", ELF32_R_TYPE(rel->r_info));
+		cprintf("ld.so: mResolve: %s\n", mdi->str + sym->st_name);
+		cprintf("ld.so: PLT REL TYPE 0x%08x not supported!\n", ELF32_R_TYPE(rel->r_info));
 		assert(0);
 		return 0xffffffff;
 	}
 }
-bool ld_check_delay();
+
 uint32_t ld_handle_got(int idx, uint32_t ra_stub) {
 	if (!ld_check_delay()) {
 		cprintf("ld.so: Lazy got on ThinPad II.\n");
