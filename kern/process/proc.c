@@ -604,6 +604,7 @@ load_elf(int fd, struct mm_struct* mm, uint32_t base, struct aux_load_elf* aux) 
         case ELF_PT_PHDR:
             if (aux != NULL)
                 aux -> phdr = ph.p_va + base;
+            continue;
             // No `break` here. Fall through.
         case ELF_PT_LOAD:
             break;
@@ -615,7 +616,7 @@ load_elf(int fd, struct mm_struct* mm, uint32_t base, struct aux_load_elf* aux) 
             ((ph.p_flags & ELF_PF_W) ? VM_WRITE : 0) |
             ((ph.p_flags & ELF_PF_X) ? VM_EXEC : 0);
         uint32_t perm = PTE_U | ((ph.p_flags & ELF_PF_W) ? PTE_W : 0);
-        cprintf("VA: 0x%08x, MEMSZ: 0x%08x.\n", ph.p_va + base, ph.p_memsz);
+        cprintf("exec: VA: 0x%08x, MEMSZ: 0x%08x.\n", ph.p_va + base, ph.p_memsz);
         assert(mm_map(mm, (ph.p_va + base), ph.p_memsz, flags, NULL) == 0);
 
         // cprintf("********************\n");
@@ -691,15 +692,15 @@ load_icode(int fd, int argc, char **kargv) {
     assert(mm != NULL);
     assert(setup_pgdir(mm) == 0);
     struct aux_load_elf aux;
-    cprintf("Loading elf\n");
+    cprintf("exec: Loading elf\n");
     assert(load_elf(fd, mm, 0, &aux) == 0);
     bool dyn = aux.interp != NULL;
     uint32_t auxv_entry;
-    cprintf("max_addr = 0x%08x\n", aux.max_addr);
+    cprintf("exec: max_addr = 0x%08x\n", aux.max_addr);
     aux.max_addr = ROUNDUP(aux.max_addr, PGSIZE);
-    cprintf("base = 0x%08x\n", aux.max_addr);
+    cprintf("exec: base = 0x%08x\n", aux.max_addr);
     if (dyn) {
-        cprintf("INTERP: %s\n", aux.interp);
+        cprintf("exec: INTERP: %s\n", aux.interp);
         int interp_fd = sysfile_open(aux.interp, O_RDONLY);
         kfree(aux.interp);
         aux.interp = NULL;
@@ -724,7 +725,7 @@ load_icode(int fd, int argc, char **kargv) {
     uint32_t* u_argv[EXEC_MAX_ARG_NUM];
     int i = 0;
     for (; i < argc; i++) {
-        cprintf("kargv[%d] = %s\n", i, kargv[i]);
+        cprintf("exec: kargv[%d] = %s\n", i, kargv[i]);
         size_t len = (strlen(kargv[i]) + 1 + 3) / 4;
         u_esp -= len;
         u_argv[i] = u_esp;
@@ -838,6 +839,7 @@ do_execve(const char *name, int argc, const char **argv) {
     /* sysfile_open will check the first argument path, thus we have to use a user-space pointer, and argv[0] may be incorrect */
     int fd;
     if ((ret = fd = sysfile_open(path, O_RDONLY)) < 0) {
+        cprintf("Open %s failed.\n", path);
         goto execve_exit;
     }
     if (mm != NULL) {
