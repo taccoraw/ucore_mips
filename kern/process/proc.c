@@ -604,6 +604,7 @@ load_elf(int fd, struct mm_struct* mm, uint32_t base, struct aux_load_elf* aux) 
         case ELF_PT_PHDR:
             if (aux != NULL)
                 aux -> phdr = ph.p_va + base;
+            continue;
             // No `break` here. Fall through.
         case ELF_PT_LOAD:
             break;
@@ -748,7 +749,8 @@ load_icode(int fd, int argc, char **kargv) {
         auxv[5].a_un.a_val = 0;
     }
     // auxv end
-    *(--u_esp) = 0;
+    *(--u_esp) = 0;  // NULL of envp
+    *(--u_esp) = 0;  // NULL of argv
     u_esp -= argc;
     for (i = 0; i < argc; i++)
         u_esp[i] = (uintptr_t)u_argv[i];
@@ -756,14 +758,10 @@ load_icode(int fd, int argc, char **kargv) {
     u_esp[0] = argc;
     struct trapframe *tf = current->tf;
     memset(tf, 0, sizeof(struct trapframe));
-    tf -> tf_regs.a0 = argc;
-    tf -> tf_regs.a1 = (uintptr_t)(u_esp+1);
     tf -> tf_regs.sp = (uintptr_t)u_esp;
+    tf -> tf_regs.ra = 0x0;
     tf -> tf_EPC = aux.entry;
     tf -> tf_Status = 0x13;
-    if (dyn) {
-        tf -> tf_regs.t9 = aux.entry;
-    }
     // cprintf("----------LOADED----------\n");
     return 0;
 }
@@ -841,6 +839,7 @@ do_execve(const char *name, int argc, const char **argv) {
     /* sysfile_open will check the first argument path, thus we have to use a user-space pointer, and argv[0] may be incorrect */
     int fd;
     if ((ret = fd = sysfile_open(path, O_RDONLY)) < 0) {
+        cprintf("Open %s failed.\n", path);
         goto execve_exit;
     }
     if (mm != NULL) {
@@ -982,7 +981,30 @@ user_main(void *arg) {
 #else
     KERNEL_EXECVE(sh);
     // KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
-    // KERNEL_EXECVE(run);
+    // KERNEL_EXECVE(run, "haha", "test");
+    // KERNEL_EXECVE(args);
+    // KERNEL_EXECVE(call);
+    // KERNEL_EXECVE(faultread);
+    // KERNEL_EXECVE(fibonacci);
+    // KERNEL_EXECVE(forktree);
+    // KERNEL_EXECVE(hello2);
+    // KERNEL_EXECVE(ls);
+    // KERNEL_EXECVE(matrix);
+    //// KERNEL_EXECVE(sh);
+    // KERNEL_EXECVE(sleepkill);
+    // KERNEL_EXECVE(str);
+    // KERNEL_EXECVE(yield);
+    // KERNEL_EXECVE(badarg);
+    // KERNEL_EXECVE(exit);
+    // KERNEL_EXECVE(faultreadkernel);
+    // KERNEL_EXECVE(forktest);
+    // KERNEL_EXECVE(hello);
+    // KERNEL_EXECVE(math);
+    // KERNEL_EXECVE(pgdir);
+    // KERNEL_EXECVE(sleep);
+    // KERNEL_EXECVE(spin);
+    // KERNEL_EXECVE(testbss);
+    // KERNEL_EXECVE(waitkill);
 #endif
     panic("user_main execve failed.\n");
 }
@@ -1126,20 +1148,29 @@ void* do_mmap2(void* addr, size_t length, int prot, int fd, off_t offset) {
     if (la % PGSIZE > 0) {
         assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
         uint32_t len = (la / PGSIZE == end / PGSIZE) ? length : (PGSIZE - la % PGSIZE);
-        assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
+        if (fd != NO_FD)
+            assert(load_icode_read(fd, page2kva(page) + la % PGSIZE, len, offset) == 0);
+        else
+            memset(page2kva(page) + la % PGSIZE, 0, len);
         la += len;
         offset += len;
     }
     while (la < end / PGSIZE * PGSIZE) {
         assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
-        assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
+        if (fd != NO_FD)
+            assert(load_icode_read(fd, page2kva(page), PGSIZE, offset) == 0);
+        else
+            memset(page2kva(page), 0, PGSIZE);
         la += PGSIZE;
         offset += PGSIZE;
     }
     if (la < end) {
         assert((page = pgdir_alloc_page(mm -> pgdir, la, perm)) != NULL);
         uint32_t len = end % PGSIZE;
-        assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
+        if (fd != NO_FD)
+            assert(load_icode_read(fd, page2kva(page), len, offset) == 0);
+        else
+            memset(page2kva(page), 0, len);
         la += len;
         offset += len;
     }
