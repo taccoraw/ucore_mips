@@ -27,6 +27,7 @@ GDB		:= $(GCCPREFIX)gdb
 CC		:= $(GCCPREFIX)gcc
 CFLAGS	:= -EL -march=4kc -fno-builtin -Wall -ggdb -gstabs -nostdinc $(DEFS)
 CFLAGS	+= $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+CFLAGS	+= -fno-common
 CTYPE	:= c S
 
 LD      := $(GCCPREFIX)ld
@@ -98,27 +99,59 @@ UINCLUDE	+= user/include/ \
 USRCDIR		+= user
 
 ULIBDIR		+= user/libs
+USTATICDIR	+= user/static
+UXLIBDIR	+= user/xlibs
+ULDSODIR	+= user/ld
+UCPLXDIR	+= user/complex
 
 UCFLAGS		+= $(addprefix -I,$(UINCLUDE))
 USER_BINS	:=
 
-$(call add_files_cc,$(call listf_cc,$(ULIBDIR)),ulibs,$(UCFLAGS))
+$(call add_files_cc,$(call listf_cc,$(ULIBDIR)),ulibs,$(UCFLAGS) -fPIC)
+$(call add_files_cc,$(call listf_cc,$(USTATICDIR)),ustatic,$(UCFLAGS))
+$(call add_files_cc,$(call listf_cc,$(UXLIBDIR)),uxlibs,$(UCFLAGS) -fPIC)
+$(call add_files_cc,$(call listf_cc,$(ULDSODIR)),uldso,$(UCFLAGS) -fPIC)
 $(call add_files_cc,$(call listf_cc,$(USRCDIR)),uprog,$(UCFLAGS))
+$(call add_files_cc,$(call listf_cc,$(UCPLXDIR)),ucplx,$(UCFLAGS) -fPIC)
+$(call add_files_cc,$(call listf_cc,user/complex/nPIC),ucplxnpic,$(UCFLAGS) -Iuser/complex)
 
-UOBJS	:= $(call read_packet,ulibs libs)
+UOBJS	:= $(call read_packet,ulibs uxlibs)
+USTATIC	:= $(call read_packet,ustatic)
+ULDSO	:= $(call read_packet,uldso)
+ULIBSO	:= ulib.so
 
 define uprog_ld
 __user_bin__ := $$(call ubinfile,$(1))
 USER_BINS += $$(__user_bin__)
-$$(__user_bin__): tools/user.ld
-$$(__user_bin__): $$(UOBJS)
+$$(__user_bin__): ld.so
+$$(__user_bin__): $$(ULIBSO)
+$$(__user_bin__): $$(USTATIC)
 $$(__user_bin__): $(1) | $$$$(dir $$$$@)
-	$(V)$(LD) $(LDFLAGS) -T tools/user.ld -o $$@ $$(UOBJS) $(1)
+	$(V)$(LD) $(LDFLAGS) -e _start --dynamic-linker=ld.so -rpath-link=. -o $$@ $$(USTATIC) $(1) $$(ULIBSO)
 	@$(OBJDUMP) -S $$@ > $$(call cgtype,$$<,o,asm)
 	@$(OBJDUMP) -t $$@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$$$/d' > $$(call cgtype,$$<,o,sym)
 endef
 
 $(foreach p,$(call read_packet,uprog),$(eval $(call uprog_ld,$(p))))
+
+run: ld.so $(call read_packet,ucplxnpic) liba.so libb.so libc.so libca.so $(ULIBSO) $(USTATIC)
+	$(V)$(LD) $(LDFLAGS) -e _start -rpath-link=. -o $@ --dynamic-linker=$^
+
+ROOTFILES	:= run
+
+define uso_ld
+ROOTFILES += $(1)
+$(1): $(2) $(3)
+	$(V)$(LD) $(LDFLAGS) -shared -o $$@ $$^
+endef
+
+$(eval $(call uso_ld,$(ULIBSO),$(UOBJS),))
+$(eval $(call uso_ld,ld.so,$(ULDSO),))
+$(eval $(call uso_ld,liba.so,obj/user/complex/liba.o,libaa.so))
+$(eval $(call uso_ld,libaa.so,obj/user/complex/libaa.o,))
+$(eval $(call uso_ld,libb.so,obj/user/complex/libb.o,))
+$(eval $(call uso_ld,libc.so,obj/user/complex/libc.o,libca.so))
+$(eval $(call uso_ld,libca.so,obj/user/complex/libca.o,))
 
 # -------------------------------------------------------------------
 # create 'mksfs' tools
@@ -139,12 +172,20 @@ endef
 
 $(foreach p,$(USER_BINS),$(eval $(call fscopy,$(p),$(SFSROOT)$(SLASH))))
 
+define rootmv
+SFSBINS += $(SFSROOT)/$(1)
+$(SFSROOT)/$(1): $(1)
+	$(V)$(COPY) $$< $$@
+endef
+$(foreach f,$(ROOTFILES),$(eval $(call rootmv,$(f))))
+
 $(SFSROOT):
 	if [ ! -d "$(SFSROOT)" ]; then mkdir $(SFSROOT); fi
 
 $(SFSIMG): $(SFSROOT) $(SFSBINS) | $(call totarget,mksfs)
 	$(V)dd if=/dev/zero of=$@ bs=1M count=4
 	@$(call totarget,mksfs) $@ $(SFSROOT)
+	$(V)$(RM) $(ROOTFILES)
 
 $(call create_target,sfs.img)
 

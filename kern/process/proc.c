@@ -604,6 +604,7 @@ load_elf(int fd, struct mm_struct* mm, uint32_t base, struct aux_load_elf* aux) 
         case ELF_PT_PHDR:
             if (aux != NULL)
                 aux -> phdr = ph.p_va + base;
+            continue;
             // No `break` here. Fall through.
         case ELF_PT_LOAD:
             break;
@@ -981,6 +982,28 @@ user_main(void *arg) {
     // KERNEL_EXECVE(ls, ".", "fibonacci", "sh", "badarg", "sleepkill", "str", "math");
     KERNEL_EXECVE(run, "haha", "test");
     // KERNEL_EXECVE(args);
+    // KERNEL_EXECVE(call);
+    // KERNEL_EXECVE(faultread);
+    // KERNEL_EXECVE(fibonacci);
+    // KERNEL_EXECVE(forktree);
+    // KERNEL_EXECVE(hello2);
+    // KERNEL_EXECVE(ls);
+    // KERNEL_EXECVE(matrix);
+    //// KERNEL_EXECVE(sh);
+    // KERNEL_EXECVE(sleepkill);
+    // KERNEL_EXECVE(str);
+    // KERNEL_EXECVE(yield);
+    // KERNEL_EXECVE(badarg);
+    // KERNEL_EXECVE(exit);
+    // KERNEL_EXECVE(faultreadkernel);
+    // KERNEL_EXECVE(forktest);
+    // KERNEL_EXECVE(hello);
+    // KERNEL_EXECVE(math);
+    // KERNEL_EXECVE(pgdir);
+    // KERNEL_EXECVE(sleep);
+    // KERNEL_EXECVE(spin);
+    //// KERNEL_EXECVE(testbss);
+    // KERNEL_EXECVE(waitkill);
 #endif
     panic("user_main execve failed.\n");
 }
