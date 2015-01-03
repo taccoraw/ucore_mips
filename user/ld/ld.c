@@ -178,13 +178,13 @@ void ld_reloc() {
 		}
 	}
 	// Step A2: non-PIC main, rel.plt (func)
-	/* Uncomment this part to bind NOW.
+	//* Uncomment this part to bind NOW.
 	rel = mdi->rel_plt;
 	rel_end = mdi->rel_plt + mdi->rel_plt_num;
 	for (; rel != rel_end; rel++) {
 		ld_resolve_plt(mdi, rel);
 	}
-	*/
+	//*/
 	// Step B: PIC libs
 	DynInfo* di = lda_di + 1;
 	for (; di != lda_di + lda_di_num; di++) {

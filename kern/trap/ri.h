@@ -34,6 +34,12 @@ int ri_handler(struct trapframe* tf) {
         // ignore trap (noop)
         tf->tf_EPC += 4;
         return 0;
+    } else if ((inst & 0xffff0000) == 0x04110000) {
+        uint32_t pc = inst & 0xffff;
+        if (inst & 0x8000)
+            pc |= 0xffff0000;
+        tf->tf_EPC = tf->tf_EPC + 4 + (pc << 2);
+        return 0;
     } else
         return -1;
 }
