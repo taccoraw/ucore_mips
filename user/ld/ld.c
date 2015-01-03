@@ -383,8 +383,16 @@ uint32_t ld_resolve_plt(DynInfo* di, Elf32_Rel* rel) {
 		return 0xffffffff;
 	}
 }
-
+bool ld_check_delay();
 uint32_t ld_handle_got(int idx, uint32_t ra_stub) {
+	if (!ld_check_delay()) {
+		cprintf("Lazy got on ThinPad II.\n");
+		uint32_t inst = *(uint32_t*)ra_stub;
+		assert((inst & 0xffff0000) == 0x24180000);
+		idx = inst & 0xffff;
+	} else {
+		cprintf("Lazy got in Qemu.\n");
+	}
 	DynInfo *di = lda_di, *di_end = lda_di + lda_di_num;
 	for (; di != di_end; di++) {
 		if (di->base <= ra_stub && ra_stub <= di->max_addr)  // <= ra-4 < max_addr
@@ -395,6 +403,13 @@ uint32_t ld_handle_got(int idx, uint32_t ra_stub) {
 }
 
 uint32_t ld_handle_plt(int idx, uint32_t ra_stub) {
+	if (!ld_check_delay()) {
+		cprintf("Lazy plt on ThinPad II.\n");
+		cprintf("I don't know the idx in delay slot of `jr`.\n");
+		assert(0);
+	} else {
+		cprintf("Lazy plt in Qemu.\n");
+	}
 	DynInfo* mdi = lda_di;
 	return ld_resolve_plt(mdi, mdi->rel_plt + idx);
 }

@@ -90,6 +90,17 @@ ld_entry_plt:
     jr      $t9             // nop auto-inserted
 .end ld_entry_plt
 
+.globl ld_check_delay
+.ent   ld_check_delay
+.type  ld_check_delay, @function
+ld_check_delay:
+    .set    noreorder
+    li      $v0, 0x0
+    jr      $ra
+    li      $v0, 0x1
+    .set    reorder
+.end   ld_check_delay
+
 .globl do_syscall
 .ent   do_syscall
 .type  do_syscall, @function
